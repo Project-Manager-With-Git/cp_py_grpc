@@ -12,6 +12,7 @@ from schema_entry import EntryPoint
 from pyloggerhelper import log
 from echo_pb.echo_pb2_grpc import add_ECHOServicer_to_server
 from echo_pb.echo_pb2 import DESCRIPTOR
+from .interceptor.timer import TimerInterceptor
 from .handdler import Handdler
 
 _COMPRESSION_OPTIONS = {
@@ -207,7 +208,8 @@ class Serv(EntryPoint):
             futures.ThreadPoolExecutor(max_workers=config.get("max_threads", 1000)),
             compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
             options=opts,
-            maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50)
+            maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50),
+            interceptors=(TimerInterceptor(),)  # 注册拦截器
         )
         handdler = Handdler(config)
         add_ECHOServicer_to_server(handdler, grpc_serv)

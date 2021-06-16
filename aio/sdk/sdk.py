@@ -2,7 +2,12 @@ from typing import Any, Optional, Dict
 import grpc
 from pyproxypattern import Proxy
 from echo_pb.echo_pb2_grpc import ECHOStub
-from .interceptor.timer import TimerInterceptor
+from .interceptor.timer import (
+    UnaryUnaryTimerInterceptor,
+    UnaryStreamTimerInterceptor,
+    StreamUnaryTimerInterceptor,
+    StreamStreamTimerInterceptor
+)
 
 
 class Client(Proxy):
@@ -40,14 +45,42 @@ class Client(Proxy):
         if self.options:
             options = [(k, v) for k, v in self.options.items()]
             if self.tls:
-                channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, options=options, interceptors=(TimerInterceptor(),))
+                channel = grpc.aio.secure_channel(
+                    self.url,
+                    self.credentials,
+                    compression=self.compression,
+                    options=options,
+                    interceptors=(UnaryUnaryTimerInterceptor(),
+                                  UnaryStreamTimerInterceptor(),
+                                  StreamUnaryTimerInterceptor(),
+                                  StreamStreamTimerInterceptor()))
             else:
-                channel = grpc.aio.insecure_channel(self.url, compression=self.compression, options=options, interceptors=(TimerInterceptor(),))
+                channel = grpc.aio.insecure_channel(
+                    self.url,
+                    compression=self.compression,
+                    options=options,
+                    interceptors=(UnaryUnaryTimerInterceptor(),
+                                  UnaryStreamTimerInterceptor(),
+                                  StreamUnaryTimerInterceptor(),
+                                  StreamStreamTimerInterceptor()))
         else:
             if self.tls:
-                channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, interceptors=(TimerInterceptor(),))
+                channel = grpc.aio.secure_channel(
+                    self.url,
+                    self.credentials,
+                    compression=self.compression,
+                    interceptors=(UnaryUnaryTimerInterceptor(),
+                                  UnaryStreamTimerInterceptor(),
+                                  StreamUnaryTimerInterceptor(),
+                                  StreamStreamTimerInterceptor()))
             else:
-                channel = grpc.aio.insecure_channel(self.url, compression=self.compression, interceptors=(TimerInterceptor(),))
+                channel = grpc.aio.insecure_channel(
+                    self.url,
+                    compression=self.compression,
+                    interceptors=(UnaryUnaryTimerInterceptor(),
+                                  UnaryStreamTimerInterceptor(),
+                                  StreamUnaryTimerInterceptor(),
+                                  StreamStreamTimerInterceptor()))
         self.channel = channel
         client = ECHOStub(self.channel)
         self.initialize(client)
