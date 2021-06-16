@@ -261,7 +261,6 @@ class Serv(EntryPoint):
         except KeyboardInterrupt:
             await grpc_serv.stop(0)
 
-
     def do_main(self) -> None:
         """服务程序入口."""
         config = self.config

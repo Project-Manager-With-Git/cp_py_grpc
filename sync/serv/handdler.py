@@ -9,36 +9,36 @@ class Handdler(ECHOServicer):
         super().__init__()
         self.config = config
 
-    async def Square(self, request: Any, context: grpc.aio.ServicerContext) -> Any:
+    def Square(self, request: Any, context: grpc.ServicerContext) -> Any:
         header = context.invocation_metadata()
         print(header)
-        await context.send_initial_metadata((("c", "3"), ("d", "4")))
+        context.send_initial_metadata((("c", "3"), ("d", "4")))
         context.set_trailing_metadata((
             ('checksum-bin', b'I agree'),
             ('retry', 'false'),
         ))
         return Message(Message=request.Message**2)
 
-    async def RangeSquare(self, request: Any, context: grpc.aio.ServicerContext) -> Any:
+    def RangeSquare(self, request: Any, context: grpc.ServicerContext) -> Any:
         for i in range(int(request.Message + 1)):
             yield Message(Message=i**2)
 
-    async def SumSquare(self, request_iterator: Any, context: grpc.aio.ServicerContext) -> Any:
+    def SumSquare(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
         result = 0
-        async for i in request_iterator:
+        for i in request_iterator:
             result += i.Message**2
         return Message(Message=result)
 
-    async def StreamrangeSquare(self, request_iterator: Any, context: grpc.aio.ServicerContext) -> Any:
+    def StreamrangeSquare(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
         header = context.invocation_metadata()
         print(header)
-        await context.send_initial_metadata((("c", "3"), ("d", "4")))
+        context.send_initial_metadata((("c", "3"), ("d", "4")))
         context.set_trailing_metadata((
             ('checksum-bin', b'I agree'),
             ('retry', 'false'),
         ))
         result = []
-        async for i in request_iterator:
+        for i in request_iterator:
             result.append(i.Message**2)
         for j in result:
             yield Message(Message=j)

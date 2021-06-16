@@ -7,8 +7,11 @@ from .pb import rpc_protos
 async def _cli_exp(url: str = "localhost:5000") -> None:
     # req-res
     async with sdk.initialize_from_url(url) as conn:
-        res = await conn.Square(rpc_protos.Message(Message=2.0))
+        ctx = conn.Square(rpc_protos.Message(Message=2.0), metadata=(("a", "1"), ("b", "2")))
+        print(await ctx.initial_metadata())
+        res = await ctx
         print(MessageToDict(res))
+        print(await ctx.trailing_metadata())
     # req-stream
     async with Client(url=url) as conn:
         res_stream = conn.RangeSquare(rpc_protos.Message(Message=4.0))
@@ -21,9 +24,11 @@ async def _cli_exp(url: str = "localhost:5000") -> None:
         print(MessageToDict(res))
     # stream-stream
     async with sdk:
-        res_stream = sdk.StreamrangeSquare((rpc_protos.Message(Message=float(i)) for i in range(4)))
+        res_stream = sdk.StreamrangeSquare((rpc_protos.Message(Message=float(i)) for i in range(4)), metadata=(("a", "1"), ("b", "2")))
+        print(await res_stream.initial_metadata())
         async for res in res_stream:
             print(MessageToDict(res))
+        print(await res_stream.trailing_metadata())
 
 
 def main(url: str = "localhost:5000") -> None:
