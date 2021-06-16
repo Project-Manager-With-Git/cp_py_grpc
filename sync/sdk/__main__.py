@@ -1,32 +1,35 @@
 from google.protobuf.json_format import MessageToDict
+from pyloggerhelper import log
 from .sdk import sdk, Client
 from echo_pb.echo_pb2 import Message
 
 
 def main(url: str = "localhost:5000") -> None:
+    log.initialize_for_app(app_name="sdk", log_level="DEBUG")
     # req-res
     with sdk.initialize_from_url(url) as conn:
         res, call = conn.Square.with_call(Message(Message=2.0), metadata=(("a", "1"), ("b", "2")))
-        print(call.initial_metadata())
-        print(MessageToDict(res))
-        print(call.trailing_metadata())
+        header = call.initial_metadata()
+        trailing = call.trailing_metadata()
+        log.info("Square get result", res=MessageToDict(res), header=header, trailing=trailing)
     # req-stream
     with Client(url=url) as conn:
         res_stream = conn.RangeSquare(Message(Message=4.0))
         for res in res_stream:
-            print(MessageToDict(res))
+            log.info("RangeSquare get msg", res=MessageToDict(res))
     # stream-res
     sdk.initialize_from_url(url)
     with sdk:
         res = sdk.SumSquare((Message(Message=float(i)) for i in range(4)))
-        print(MessageToDict(res))
+        log.info("SumSquare get result", res=MessageToDict(res))
     # stream-stream
     with sdk:
         res_stream = sdk.StreamrangeSquare((Message(Message=float(i)) for i in range(4)), metadata=(("a", "1"), ("b", "2")))
-        print(res_stream.initial_metadata())
+        header = res_stream.initial_metadata()
         for res in res_stream:
-            print(MessageToDict(res))
-        print(res_stream.trailing_metadata())
+            log.info("StreamrangeSquare get msg", res=MessageToDict(res))
+        trailing = res_stream.trailing_metadata()
+        log.info("StreamrangeSquare done", header=header, trailing=trailing)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import os
 import asyncio
-import warnings
 from pathlib import Path
 from concurrent import futures
 from typing import Any, Dict, Tuple, Union, List
@@ -12,6 +11,7 @@ from grpc_health.v1 import health_pb2_grpc
 from grpc_channelz.v1 import channelz
 from grpc_reflection.v1alpha import reflection
 from schema_entry import EntryPoint
+from pyloggerhelper import log
 from .pb import rpc_protos, rpc_services
 from .handdler import Handdler
 
@@ -245,12 +245,12 @@ class Serv(EntryPoint):
                 ),))
                 grpc_serv.add_secure_port(addr, server_credentials)
             except Exception as e:
-                warnings.warn(f"tls load error:{str(e)}")
+                log.warn(f"tls load error", err=type(e), err_msg=str(e), exc_info=True, stack_info=True)
                 grpc_serv.add_insecure_port(addr)
         else:
             grpc_serv.add_insecure_port(addr)
 
-        warnings.warn(f"grpc @process:{pid} start @{addr}")
+        log.warn("grpc start", pid=pid, addr=addr)
         await grpc_serv.start()
         # 设置服务为健康
         overall_server_health = ""
@@ -264,18 +264,19 @@ class Serv(EntryPoint):
     def do_main(self) -> None:
         """服务程序入口."""
         config = self.config
+        log.initialize_for_app(app_name=config.get("app_name"), log_level=config.get("log_level"))
         if config.get("uvloop"):
             try:
                 import uvloop
                 uvloop.install()
-                warnings.warn("grpc try to use uvloop")
+                log.warn("grpc try to use uvloop")
             except Exception:
-                warnings.warn("import uvloop error")
+                log.warn("import uvloop error")
             else:
-                warnings.warn("grpc using uvloop")
+                log.warn("grpc using uvloop")
         try:
             asyncio.run(self.run_singal_serv(config=config))
         except KeyboardInterrupt:
-            warnings.warn("grpc stoped")
+            log.warn("grpc stoped")
         except Exception as e:
             raise e

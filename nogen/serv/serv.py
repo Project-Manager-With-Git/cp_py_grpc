@@ -1,12 +1,7 @@
 import os
-import socket
-import warnings
-import contextlib
-import multiprocessing
 from pathlib import Path
 from concurrent import futures
-from ipaddress import ip_address
-from typing import Any, Dict, Iterator, Tuple, Union, List
+from typing import Any, Dict, Tuple, Union, List
 import grpc
 from grpc_health.v1 import health
 from grpc_health.v1 import health_pb2
@@ -14,6 +9,7 @@ from grpc_health.v1 import health_pb2_grpc
 from grpc_channelz.v1 import channelz
 from grpc_reflection.v1alpha import reflection
 from schema_entry import EntryPoint
+from pyloggerhelper import log
 from .handdler import Handdler
 from .pb import rpc_protos, rpc_services
 _COMPRESSION_OPTIONS = {
@@ -52,12 +48,6 @@ class Serv(EntryPoint):
                 "description": "log等级",
                 "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
                 "default": "DEBUG"
-            },
-            "workers": {
-                "type": "integer",
-                "title": "w",
-                "description": "启动的进程数",
-                "default": 1
             },
             "max_threads": {
                 "type": "integer",
@@ -145,54 +135,17 @@ class Serv(EntryPoint):
         }
     }
 
-    @contextlib.contextmanager
-    def _reserve_port(self) -> Iterator[Union[Tuple[str, int], Tuple[str, int, int, int]]]:
-        """为多进程执行设置套接字.
-
-        注意多进程模式使用`SO_REUSEPORT`配置,通过启动多个服务进程共同监听宿主机上的同一个端口来实现,
-        该功能只有linux有因此多进程模式只能在linux下使用.
-        """
-        config = self.config
-        host, ports = config.get("address", "0.0.0.0:5000").split(":")
-        port = int(ports)
-        if "[" in host:
-            host = host.replace("[", "").replace("]", "")
-        ip = ip_address(host)
-        host = str(ip)
-        if ip.version == 6:
-            sock = socket.socket(
-                socket.AF_INET6,
-                socket.SOCK_STREAM
-            )
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            if sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT) == 0:
-                raise RuntimeError("Failed to set SO_REUSEPORT.")
-            sock.bind((host, port, 0, 0))
-        else:
-            sock = socket.socket(
-                socket.AF_INET,
-                socket.SOCK_STREAM
-            )
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            if sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT) == 0:
-                raise RuntimeError("Failed to set SO_REUSEPORT.")
-            sock.bind((host, port))
-        try:
-            yield sock.getsockname()
-        finally:
-            sock.close()
-
-    def make_opts(self, config: Dict[str, Any], as_worker: bool) -> List[Tuple[str, Union[int]]]:
+    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, Union[int]]]:
         """构造grpc服务端的选项配置.
 
         Args:
-            as_worker (bool): 服务是否是多线程中作为worker的
+            config (Dict[str, Any]): 服务的配置
 
         Returns:
             List[Tuple[str, Union[int]]]: 配置项
         """
         _opt = {
-            'grpc.so_reuseport': 1 if as_worker else 0
+            'grpc.so_reuseport': 0
         }
         # grpc运行模式
         grpc_mode = config.get("grpc_mode")
@@ -237,18 +190,17 @@ class Serv(EntryPoint):
         # 其他配置
         rpc_options = config.get("rpc_options")
         if rpc_options:
-            _opt.update({pair[0]: int(pair[1]) if pair[1].isdigit() else pair[1] for opt in rpc_options if len(pair := opt.split(":")) == 2})
+            _opt.update({
+                pair[0]: int(pair[1]) if pair[1].isdigit() else pair[1]
+                for opt in rpc_options if len(pair := opt.split(":")) == 2
+            })
         return [(k, v) for k, v in _opt.items()]
 
-    def run_singal_serv(self, config: Dict[str, Any], as_worker: bool = False) -> None:
-        """单一进程启动grpc服务.
-
-        Args:
-            config (Dict[str, Any]): 启动的服务配置
-            as_worker (bool, optional): 是否作为多进程的worker. Defaults to False.
-
-        """
-        opts = self.make_opts(config, as_worker)
+    def do_main(self) -> None:
+        """服务程序入口."""
+        config = self.config
+        log.initialize_for_app(app_name=config.get("app_name"), log_level=config.get("log_level"))
+        opts = self.make_opts(config)
         grpc_serv = grpc.server(
             futures.ThreadPoolExecutor(max_workers=config.get("max_threads", 1000)),
             compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
@@ -294,11 +246,11 @@ class Serv(EntryPoint):
                 ),))
                 grpc_serv.add_secure_port(addr, server_credentials)
             except Exception as e:
-                warnings.warn(f"tls load error:{str(e)}")
+                log.warn(f"tls load error", err=type(e), err_msg=str(e), exc_info=True, stack_info=True)
                 grpc_serv.add_insecure_port(addr)
         else:
             grpc_serv.add_insecure_port(addr)
-        warnings.warn(f"grpc worker Pid:{pid} start @{addr}")
+        log.warn("grpc start", pid=pid, addr=addr)
         grpc_serv.start()
         try:
             # 设置服务为健康
@@ -307,53 +259,6 @@ class Serv(EntryPoint):
                 health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
             grpc_serv.wait_for_termination()
         except KeyboardInterrupt:
-            warnings.warn(f"grpc worker Pid:{pid} stoped")
+            log.warn("grpc worker stoped", pid=pid)
         except Exception as e:
             raise e
-
-    def run_mp_serv(self, worker_num: int) -> None:
-        """多进程方式执行grpc服务.
-
-        Args:
-            worker_num (int): 启动作为grpc worker的进程数量
-        """
-        workers = []
-        config = self.config
-        try:
-            with self._reserve_port():
-                for _ in range(worker_num):
-                    worker = multiprocessing.Process(
-                        target=self.run_singal_serv,
-                        kwargs={
-                            "config": config,
-                            "as_worker": True
-                        })
-                    worker.start()
-                    workers.append(worker)
-                for worker in workers:
-                    worker.join()
-        except KeyboardInterrupt:
-            warnings.warn("grpc workers stoping")
-        except Exception as e:
-            raise e
-
-    def run_service(self) -> None:
-        """执行服务."""
-        config = self.config
-        workers = config.get("workers", 1)
-        if workers <= 0:
-            workers = multiprocessing.cpu_count()
-        if workers == 1:
-            self.run_singal_serv(config=config)
-        else:
-            try:
-                self.run_mp_serv(worker_num=workers)
-            except Exception as e:
-                err = type(e)
-                err_msg = str(e)
-                warnings.warn(f"多进程执行失败,改为单进程执行: {err} with msg {err_msg}")
-                self.run_singal_serv(config=config)
-
-    def do_main(self) -> None:
-        """服务程序入口."""
-        self.run_service()

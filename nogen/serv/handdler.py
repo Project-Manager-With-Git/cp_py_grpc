@@ -1,6 +1,6 @@
 from typing import Any, Dict
 import grpc
-
+from pyloggerhelper import log
 from .pb import rpc_protos, rpc_services
 
 
@@ -11,7 +11,7 @@ class Handdler(rpc_services.ECHOServicer):
 
     def Square(self, request: Any, context: grpc.ServicerContext) -> Any:
         header = context.invocation_metadata()
-        print(header)
+        log.info("get header", header=header)
         context.send_initial_metadata((("c", "3"), ("d", "4")))
         context.set_trailing_metadata((
             ('checksum-bin', b'I agree'),
@@ -31,7 +31,7 @@ class Handdler(rpc_services.ECHOServicer):
 
     def StreamrangeSquare(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
         header = context.invocation_metadata()
-        print(header)
+        log.info("get header", header=header)
         context.send_initial_metadata((("c", "3"), ("d", "4")))
         context.set_trailing_metadata((
             ('checksum-bin', b'I agree'),

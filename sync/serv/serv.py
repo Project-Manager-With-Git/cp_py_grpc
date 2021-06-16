@@ -1,5 +1,4 @@
 import os
-import warnings
 from pathlib import Path
 from concurrent import futures
 from typing import Any, Dict, Tuple, Union, List
@@ -10,6 +9,7 @@ from grpc_health.v1 import health_pb2_grpc
 from grpc_channelz.v1 import channelz
 from grpc_reflection.v1alpha import reflection
 from schema_entry import EntryPoint
+from pyloggerhelper import log
 from echo_pb.echo_pb2_grpc import add_ECHOServicer_to_server
 from echo_pb.echo_pb2 import DESCRIPTOR
 from .handdler import Handdler
@@ -141,7 +141,7 @@ class Serv(EntryPoint):
         """构造grpc服务端的选项配置.
 
         Args:
-            as_worker (bool): 服务是否是多线程中作为worker的
+            config (Dict[str, Any]): 服务的配置
 
         Returns:
             List[Tuple[str, Union[int]]]: 配置项
@@ -201,7 +201,8 @@ class Serv(EntryPoint):
     def do_main(self) -> None:
         """服务程序入口."""
         config = self.config
-        opts = self.make_opts(config,)
+        log.initialize_for_app(app_name=config.get("app_name"), log_level=config.get("log_level"))
+        opts = self.make_opts(config)
         grpc_serv = grpc.server(
             futures.ThreadPoolExecutor(max_workers=config.get("max_threads", 1000)),
             compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
@@ -247,11 +248,11 @@ class Serv(EntryPoint):
                 ),))
                 grpc_serv.add_secure_port(addr, server_credentials)
             except Exception as e:
-                warnings.warn(f"tls load error:{str(e)}")
+                log.warn(f"tls load error", err=type(e), err_msg=str(e), exc_info=True, stack_info=True)
                 grpc_serv.add_insecure_port(addr)
         else:
             grpc_serv.add_insecure_port(addr)
-        warnings.warn(f"grpc worker Pid:{pid} start @{addr}")
+        log.warn("grpc start", pid=pid, addr=addr)
         grpc_serv.start()
         try:
             # 设置服务为健康
@@ -260,6 +261,6 @@ class Serv(EntryPoint):
                 health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
             grpc_serv.wait_for_termination()
         except KeyboardInterrupt:
-            warnings.warn(f"grpc worker Pid:{pid} stoped")
+            log.warn("grpc worker stoped", pid=pid)
         except Exception as e:
             raise e

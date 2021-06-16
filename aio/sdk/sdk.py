@@ -2,6 +2,7 @@ from typing import Any, Optional, Dict
 import grpc
 from pyproxypattern import Proxy
 from echo_pb.echo_pb2_grpc import ECHOStub
+from .interceptor.timer import TimerInterceptor
 
 
 class Client(Proxy):
@@ -39,14 +40,15 @@ class Client(Proxy):
         if self.options:
             options = [(k, v) for k, v in self.options.items()]
             if self.tls:
-                self.channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, options=options)
+                channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, options=options, interceptors=(TimerInterceptor(),))
             else:
-                self.channel = grpc.aio.insecure_channel(self.url, compression=self.compression, options=options)
+                channel = grpc.aio.insecure_channel(self.url, compression=self.compression, options=options, interceptors=(TimerInterceptor(),))
         else:
             if self.tls:
-                self.channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression)
+                channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, interceptors=(TimerInterceptor(),))
             else:
-                self.channel = grpc.aio.insecure_channel(self.url, compression=self.compression)
+                channel = grpc.aio.insecure_channel(self.url, compression=self.compression, interceptors=(TimerInterceptor(),))
+        self.channel = channel
         client = ECHOStub(self.channel)
         self.initialize(client)
 
