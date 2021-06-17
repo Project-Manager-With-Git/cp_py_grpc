@@ -66,7 +66,7 @@ class Serv(EntryPoint):
                 "description": "最大每秒接受并发数",
                 "default": 50
             },
-            "use_channelz": {
+            "use_admin": {
                 "type": "boolean",
                 "description": "是否使用channelz协助优化",
                 "default": False
@@ -230,8 +230,8 @@ class Serv(EntryPoint):
         )
         reflection.enable_server_reflection(services, grpc_serv)
 
-        # channelz
-        if self.config.get("use_channelz"):
+        # admin,admin接口不稳定,就先只使用channelz
+        if self.config.get("use_admin"):
             channelz.add_channelz_servicer(grpc_serv)
         # 绑定端口
         pid = os.getpid()

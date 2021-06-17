@@ -34,7 +34,7 @@ async def _cli_exp(url: str = "localhost:5000") -> None:
         log.info("StreamrangeSquare done", header=header, trailing=trailing)
 
 
-def main(url: str = "localhost:5000") -> None:
+def main(url: str = "ipv4:127.0.0.1:5001,127.0.0.1:5000") -> None:
     asyncio.run(_cli_exp(url))
 
 

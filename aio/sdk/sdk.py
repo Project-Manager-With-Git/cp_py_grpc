@@ -42,6 +42,9 @@ class Client(Proxy):
     def new_instance(self) -> None:
         if not self.url:
             raise AttributeError("need url!")
+        if len(self.url.split(",")) > 1:
+            self.options["grpc.lb_policy_name"] = "round_robin"
+            print("set grpc.lb_policy_name to round_robin")
         if self.options:
             options = [(k, v) for k, v in self.options.items()]
             if self.tls:

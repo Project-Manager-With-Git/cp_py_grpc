@@ -10,7 +10,6 @@ class TimerInterceptor(grpc.ServerInterceptor):
                           continuation: Callable[[grpc.HandlerCallDetails], grpc.RpcMethodHandler],
                           handler_call_details: grpc.HandlerCallDetails) -> grpc.RpcMethodHandler:
         start = time()
-        res = continuation(handler_call_details)
-        end = time()
-        log.info("query cost", cost=end - start, method=handler_call_details.method)
-        return res
+        ctx = continuation(handler_call_details)
+        log.info("query cost", cost=time() - start, method=handler_call_details.method)
+        return ctx
