@@ -1,8 +1,12 @@
+import sys
+from typing import Sequence
 import asyncio
 from google.protobuf.json_format import MessageToDict
 from pyloggerhelper import log
+from schema_entry import EntryPoint
 from .sdk import sdk, Client
 from .pb import rpc_protos
+
 
 
 async def _cli_exp(url: str = "localhost:5000") -> None:
@@ -34,9 +38,30 @@ async def _cli_exp(url: str = "localhost:5000") -> None:
         log.info("StreamrangeSquare done", header=header, trailing=trailing)
 
 
-def main(url: str = "localhost:5000") -> None:
-    asyncio.run(_cli_exp(url))
+class Test(EntryPoint):
+    """grpc的服务端启动入口."""
+    schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["address"],
+        "properties": {
+            "address": {
+                "type": "string",
+                "title": "a",
+                "description": "服务启动地址",
+                "default": "localhost:5000"
+            }
+        }
+    }
+
+    def do_main(self) -> None:
+        syncio.run(_cli_exp(self.config["address"]))
+
+
+def main(argv: Sequence[str]) -> None:
+    test_node = Test(name="{{ serv_name }}_serv_test")
+    test_node(argv)
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

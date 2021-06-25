@@ -38,6 +38,11 @@
             "description": "项目定义service的proto文件",
             "default_path": "pbschema/{{ serv_name }}.proto"
         },
+        "main": {
+            "source": "__main__.py.jinja",
+            "description": "定义项目的入口函数",
+            "default_path": "__main__.py"
+        },
         "aio_serv": {
             "source": "aio/serv",
             "description": "grpc异步服务端模块模板",
