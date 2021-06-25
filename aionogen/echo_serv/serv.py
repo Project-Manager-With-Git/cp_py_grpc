@@ -14,7 +14,7 @@ from schema_entry import EntryPoint
 from pyloggerhelper import log
 from .pb import rpc_protos, rpc_services
 from .handdler import Handdler
-
+from .interceptor.timer import TimerInterceptor
 
 _COMPRESSION_OPTIONS = {
     "none": grpc.Compression.NoCompression,
@@ -28,7 +28,7 @@ class Serv(EntryPoint):
     schema = {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "required": ["address", "log_level"],
+        "required": ["app_name", "address", "log_level"],
         "properties": {
             "app_version": {
                 "type": "string",
@@ -38,7 +38,8 @@ class Serv(EntryPoint):
             "app_name": {
                 "type": "string",
                 "title": "n",
-                "description": "应用名"
+                "description": "应用名",
+                "default": "cp_py_grpc"
             },
             "address": {
                 "type": "string",
@@ -206,7 +207,8 @@ class Serv(EntryPoint):
             futures.ThreadPoolExecutor(max_workers=config.get("max_threads", 1000)),
             compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
             options=opts,
-            maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50)
+            maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50),
+            interceptors=(TimerInterceptor(),)
         )
         handdler = Handdler(config)
         rpc_services.add_ECHOServicer_to_server(handdler, grpc_serv)

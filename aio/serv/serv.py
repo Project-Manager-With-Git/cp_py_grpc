@@ -29,7 +29,7 @@ class Serv(EntryPoint):
     schema = {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "required": ["address", "log_level"],
+        "required": ["app_name", "address", "log_level"],
         "properties": {
             "app_version": {
                 "type": "string",
@@ -39,7 +39,8 @@ class Serv(EntryPoint):
             "app_name": {
                 "type": "string",
                 "title": "n",
-                "description": "应用名"
+                "description": "应用名",
+                "default": "cp_py_grpc"
             },
             "address": {
                 "type": "string",
@@ -212,7 +213,7 @@ class Serv(EntryPoint):
             compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
             options=opts,
             maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50),
-            interceptors=(TimerInterceptor(),)#注册拦截器
+            interceptors=(TimerInterceptor(),)  # 注册拦截器
         )
         add_ECHOServicer_to_server(handdler, grpc_serv)
 

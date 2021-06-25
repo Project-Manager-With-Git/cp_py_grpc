@@ -27,7 +27,7 @@ class Serv(EntryPoint):
     schema = {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "required": ["address", "log_level"],
+        "required": ["app_name", "address", "log_level"],
         "properties": {
             "app_version": {
                 "type": "string",
@@ -37,7 +37,8 @@ class Serv(EntryPoint):
             "app_name": {
                 "type": "string",
                 "title": "n",
-                "description": "应用名"
+                "description": "应用名",
+                "default": "cp_py_grpc"
             },
             "address": {
                 "type": "string",

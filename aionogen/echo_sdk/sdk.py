@@ -3,6 +3,12 @@ import grpc
 import grpc.experimental
 from pyproxypattern import Proxy
 from .pb import rpc_services
+from .interceptor.timer import (
+    UnaryUnaryTimerInterceptor,
+    UnaryStreamTimerInterceptor,
+    StreamUnaryTimerInterceptor,
+    StreamStreamTimerInterceptor
+)
 
 
 class Client(Proxy):
@@ -40,14 +46,31 @@ class Client(Proxy):
         if self.options:
             options = [(k, v) for k, v in self.options.items()]
             if self.tls:
-                self.channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, options=options)
+                self.channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, options=options,
+                                                       interceptors=(UnaryUnaryTimerInterceptor(),
+                                                                     UnaryStreamTimerInterceptor(),
+                                                                     StreamUnaryTimerInterceptor(),
+                                                                     StreamStreamTimerInterceptor()))
+
             else:
-                self.channel = grpc.aio.insecure_channel(self.url, compression=self.compression, options=options)
+                self.channel = grpc.aio.insecure_channel(self.url, compression=self.compression, options=options,
+                                                         interceptors=(UnaryUnaryTimerInterceptor(),
+                                                                       UnaryStreamTimerInterceptor(),
+                                                                       StreamUnaryTimerInterceptor(),
+                                                                       StreamStreamTimerInterceptor()))
         else:
             if self.tls:
-                self.channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression)
+                self.channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression,
+                                                       interceptors=(UnaryUnaryTimerInterceptor(),
+                                                                     UnaryStreamTimerInterceptor(),
+                                                                     StreamUnaryTimerInterceptor(),
+                                                                     StreamStreamTimerInterceptor()))
             else:
-                self.channel = grpc.aio.insecure_channel(self.url, compression=self.compression)
+                self.channel = grpc.aio.insecure_channel(self.url, compression=self.compression,
+                                                         interceptors=(UnaryUnaryTimerInterceptor(),
+                                                                       UnaryStreamTimerInterceptor(),
+                                                                       StreamUnaryTimerInterceptor(),
+                                                                       StreamStreamTimerInterceptor()))
         client = rpc_services.ECHOStub(self.channel)
         self.initialize(client)
 
