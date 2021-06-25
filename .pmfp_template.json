@@ -1,0 +1,102 @@
+{
+    "language": "py",
+    "description": "python语言grpc服务和sdk的组件库.",
+    "author": "hsz",
+    "template_type": "components",
+    "requires": [
+        "pyproxypattern >= 0.0.1",
+        "grpcio >= 1.38.0",
+        "protobuf >= 3.17.3",
+        "grpcio-health-checking >= 1.38.0",
+        "grpcio-reflection >= 1.38.0",
+        "grpcio-admin >= 1.38.0",
+        "schema_entry >= 0.1.5",
+        "grpcio-tools >= 1.38.0",
+        "pyloggerhelper >= 0.0.3"
+    ],
+    "test_requires": [
+        "coverage >= 5.5",
+        "mypy >= 0.800",
+        "autopep8 >= 1.5.6",
+        "pylint >= 2.8.0",
+        "pydocstyle>=6.0.0"
+    ],
+    "template_keys": {
+        "serv_name": {
+            "description": "定义service的名字",
+            "default": "{{ project_name }}",
+            "ask": true
+        },
+        "app_name": {
+            "description": "定义app的名字",
+            "default": "{{ project_name }}"
+        }
+    },
+    "components": {
+        "service_schema": {
+            "source": "pbschema/echo.proto.jinja",
+            "description": "项目定义service的proto文件",
+            "default_path": "pbschema/{{ serv_name }}.proto"
+        },
+        "aio_serv": {
+            "source": "aio/serv",
+            "description": "grpc异步服务端模块模板",
+            "default_path": "{{ project_name }}/serv"
+        },
+        "aio_sdk": {
+            "source": "aio/sdk",
+            "description": "grpc异步sdk模块模板",
+            "default_path": "{{ project_name }}/sdk"
+        },
+        "aio_serv_interceptor": {
+            "source": "aio_serv_interceptor",
+            "description": "grpc异步服务端模块拦截器模板",
+            "default_path": "{{ project_name }}/serv/interceptor"
+        },
+        "aio_sdk_interceptor": {
+            "source": "aio_client_interceptor",
+            "description": "grpc异步sdk模块拦截器模板",
+            "default_path": "{{ project_name }}/sdk/interceptor"
+        },
+        "aio_nogen_serv": {
+            "source": "aionogen/serv",
+            "description": "grpc异步服务端模块模板",
+            "default_path": "{{ project_name }}/serv"
+        },
+        "aio_nogen_sdk": {
+            "source": "aionogen/sdk",
+            "description": "grpc异步sdk模块模板",
+            "default_path": "{{ project_name }}/sdk"
+        },
+        "sync_serv": {
+            "source": "sync/serv",
+            "description": "grpc同步服务端模块模板",
+            "default_path": "{{ project_name }}/serv"
+        },
+        "sync_sdk": {
+            "source": "sync/sdk",
+            "description": "grpc同步sdk模块模板",
+            "default_path": "{{ project_name }}/sdk"
+        },
+        "sync_serv_interceptor": {
+            "source": "sync_serv_interceptor",
+            "description": "grpc同步服务端模块拦截器模板",
+            "default_path": "{{ project_name }}/serv/interceptor"
+        },
+        "sync_sdk_interceptor": {
+            "source": "sync_client_interceptor",
+            "description": "grpc同步sdk模块拦截器模板",
+            "default_path": "{{ project_name }}/sdk/interceptor"
+        },
+        "sync_nogen_serv": {
+            "source": "nogen/serv",
+            "description": "grpc同步服务端模块模板",
+            "default_path": "{{ project_name }}/serv"
+        },
+        "sync_nogen_sdk": {
+            "source": "nogen/sdk",
+            "description": "grpc同步sdk模块模板",
+            "default_path": "{{ project_name }}/sdk"
+        }
+    }
+}
