@@ -89,7 +89,7 @@
             "default_path": "{{ project_name }}/serv/interceptor"
         },
         "sync_sdk_interceptor": {
-            "source": "sync_client_interceptor",
+            "source": "sync_sdk_interceptor",
             "description": "grpc同步sdk模块拦截器模板",
             "default_path": "{{ project_name }}/sdk/interceptor"
         },
