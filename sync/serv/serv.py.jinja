@@ -357,7 +357,7 @@ class Serv(EntryPoint):
         Raises:
             e: 执行报错
         """
-        hostname, port = addr.split(":")
+        hostname, port_str = addr.split(":")
         port = int(port_str)
         xds_creds = self.config.get("xds_creds", False)
         maintenance_port = self.config.get("xds_maintenance_port") or int(port)
