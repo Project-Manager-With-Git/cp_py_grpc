@@ -5,13 +5,13 @@
     "template_type": "components",
     "requires": [
         "pyproxypattern >= 0.0.1",
-        "grpcio >= 1.38.0",
+        "grpcio >= 1.43.0",
         "protobuf >= 3.17.3",
-        "grpcio-health-checking >= 1.38.0",
-        "grpcio-reflection >= 1.38.0",
-        "grpcio-admin >= 1.38.0",
+        "grpcio-health-checking >= 1.43.0",
+        "grpcio-reflection >= 1.43.0",
+        "grpcio-admin >= 1.43.0",
         "schema_entry >= 0.1.5",
-        "grpcio-tools >= 1.38.0",
+        "grpcio-tools >= 1.43.0",
         "pyloggerhelper >= 0.0.3"
     ],
     "test_requires": [
@@ -19,7 +19,8 @@
         "mypy >= 0.800",
         "autopep8 >= 1.5.6",
         "pylint >= 2.8.0",
-        "pydocstyle>=6.0.0"
+        "pydocstyle>=6.0.0",
+        "types-protobuf>=3.19.6"
     ],
     "template_keys": {
         "serv_name": {
