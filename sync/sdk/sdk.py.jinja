@@ -1,8 +1,7 @@
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List, Union
 import grpc
 from pyproxypattern import Proxy
 from {{ serv_name }}_pb.{{ serv_name }}_pb2_grpc import {{ serv_name | upper }}Stub
-
 
 
 class Client(Proxy):
