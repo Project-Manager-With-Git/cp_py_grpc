@@ -159,7 +159,7 @@ class Serv(EntryPoint):
         }
     }
 
-    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, Union[int]]]:
+    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, int]]:
         """构造grpc服务端的选项配置.
 
         Args:
