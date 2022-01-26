@@ -44,11 +44,12 @@ class Client(Proxy):
         if not self.url:
             raise AttributeError("need url!")
         options = None
+        opt = {}
         if self.url.startswith("dns:") or len(self.url.split(",")) > 1:
-            self.options["grpc.lb_policy_name"] = "round_robin"
-            print("use round_robin as lb_policy for dns lb")
+            opt["grpc.lb_policy_name"] = "round_robin"
         if self.options:
-            options = [(k, v) for k, v in self.options.items()]
+            opt.update(**self.options)
+            options = [(k, v) for k, v in opt.items()]
         if self.xds_creds:
             fallback_creds = grpc.experimental.insecure_channel_credentials()
             channel_creds = grpc.xds_channel_credentials(fallback_creds)

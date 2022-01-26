@@ -1,34 +1,35 @@
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, List, Union
 import grpc
 from pyproxypattern import Proxy
 from {{ serv_name }}_pb.{{ serv_name }}_pb2_grpc import {{ serv_name | upper }}Stub
-from .interceptor.timer import (
-    UnaryUnaryTimerInterceptor,
-    UnaryStreamTimerInterceptor,
-    StreamUnaryTimerInterceptor,
-    StreamStreamTimerInterceptor
-)
 
 
 class Client(Proxy):
-    __slots__ = ("url", "options", "channel", "tls", "credentials", 'instance', 'compression', '_callbacks', '_instance_check')
+    __slots__ = ("url", "options", "channel", "xds_creds", "credentials", 'instance', 'compression','interceptors', '_callbacks', '_instance_check')
     url: Optional[str]
     options: Dict[str, Any]
     channel: Optional[grpc.Channel]
     instance: Optional[{{ serv_name | upper }}Stub]
+    xds_creds: bool
 
     def __init__(self, *,
                  url: Optional[str] = None,
-                 tls: bool = False,
+                 xds_creds: bool = False,
                  credentials: Optional[grpc.ChannelCredentials] = None,
                  compression: Optional[Any] = None,
+                 interceptors: Optional[List[Union[grpc.aio.UnaryUnaryClientInterceptor,
+                                                   grpc.aio.UnaryStreamClientInterceptor,
+                                                   grpc.aio.StreamUnaryClientInterceptor,
+                                                   grpc.aio.StreamStreamClientInterceptor]]] = None,
                  **options: Any) -> None:
         super().__init__()
-        self.channel = None
+       self.channel = None
         self.instance = None
-        self.tls = tls
+        self.xds_creds = xds_creds
         self.credentials = credentials
         self.compression = compression
+        self.interceptors = interceptors
+
         if options:
             self.options = options
         else:
@@ -42,66 +43,45 @@ class Client(Proxy):
     def new_instance(self) -> None:
         if not self.url:
             raise AttributeError("need url!")
-        if len(self.url.split(",")) > 1:
-            self.options["grpc.lb_policy_name"] = "round_robin"
-            print("set grpc.lb_policy_name to round_robin")
+        options = None
+        opt = {}
+        if self.url.startswith("dns:") or len(self.url.split(",")) > 1:
+            opt["grpc.lb_policy_name"] = "round_robin"
         if self.options:
-            options = [(k, v) for k, v in self.options.items()]
-            if self.tls:
-                channel = grpc.aio.secure_channel(
-                    self.url,
-                    self.credentials,
-                    compression=self.compression,
-                    options=options,
-                    interceptors=(UnaryUnaryTimerInterceptor(),
-                                  UnaryStreamTimerInterceptor(),
-                                  StreamUnaryTimerInterceptor(),
-                                  StreamStreamTimerInterceptor()))
-            else:
-                channel = grpc.aio.insecure_channel(
-                    self.url,
-                    compression=self.compression,
-                    options=options,
-                    interceptors=(UnaryUnaryTimerInterceptor(),
-                                  UnaryStreamTimerInterceptor(),
-                                  StreamUnaryTimerInterceptor(),
-                                  StreamStreamTimerInterceptor()))
+            opt.update(**self.options)
+            options = [(k, v) for k, v in opt.items()]
+        if self.xds_creds:
+            fallback_creds = grpc.experimental.insecure_channel_credentials()
+            channel_creds = grpc.xds_channel_credentials(fallback_creds)
+            channel = grpc.aio.secure_channel(self.url, channel_creds, compression=self.compression, options=options, interceptors=self.interceptors)
         else:
-            if self.tls:
-                channel = grpc.aio.secure_channel(
-                    self.url,
-                    self.credentials,
-                    compression=self.compression,
-                    interceptors=(UnaryUnaryTimerInterceptor(),
-                                  UnaryStreamTimerInterceptor(),
-                                  StreamUnaryTimerInterceptor(),
-                                  StreamStreamTimerInterceptor()))
+            if self.credentials:
+                channel = grpc.aio.secure_channel(self.url, self.credentials, compression=self.compression, options=options, interceptors=self.interceptors)
             else:
-                channel = grpc.aio.insecure_channel(
-                    self.url,
-                    compression=self.compression,
-                    interceptors=(UnaryUnaryTimerInterceptor(),
-                                  UnaryStreamTimerInterceptor(),
-                                  StreamUnaryTimerInterceptor(),
-                                  StreamStreamTimerInterceptor()))
+                channel = grpc.aio.insecure_channel(self.url, compression=self.compression, options=options, interceptors=self.interceptors)
         self.channel = channel
         client = {{ serv_name | upper }}Stub(self.channel)
         self.initialize(client)
 
     def initialize_from_url(self, url: str, *,
-                            tls: bool = False,
+                             xds_creds: bool = False,
                             credentials: Optional[grpc.ChannelCredentials] = None,
                             compression: Optional[Any] = None,
+                            interceptors: Optional[List[Union[grpc.aio.UnaryUnaryClientInterceptor,
+                                                              grpc.aio.UnaryStreamClientInterceptor,
+                                                              grpc.aio.StreamUnaryClientInterceptor,
+                                                              grpc.aio.StreamStreamClientInterceptor]]] = None,
                             **options: Any) -> "Client":
         self.url = url
         if options:
             self.options.update(options)
-        if tls:
-            self.tls = tls
         if credentials:
             self.credentials = credentials
         if compression:
             self.compression = compression
+        self.xds_creds = xds_creds
+        if interceptors:
+            self.interceptors = interceptors
         self.new_instance()
         return self
 
