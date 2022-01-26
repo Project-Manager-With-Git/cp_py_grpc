@@ -23,7 +23,7 @@ class Client(Proxy):
                                                    grpc.aio.StreamStreamClientInterceptor]]] = None,
                  **options: Any) -> None:
         super().__init__()
-       self.channel = None
+        self.channel = None
         self.instance = None
         self.xds_creds = xds_creds
         self.credentials = credentials

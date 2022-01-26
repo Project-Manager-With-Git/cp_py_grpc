@@ -1,5 +1,5 @@
 import sys
-from typing import Sequence
+from typing import Sequence, Any
 import asyncio
 from google.protobuf.json_format import MessageToDict
 from pyloggerhelper import log
@@ -65,7 +65,7 @@ class Test(EntryPoint):
     }
 
     def do_main(self) -> None:
-        syncio.run(_cli_exp(**self.config,
+        asyncio.run(_cli_exp(**self.config,
                              interceptors=[UnaryUnaryTimerInterceptor(),
                                            UnaryStreamTimerInterceptor(),
                                            StreamUnaryTimerInterceptor(),
