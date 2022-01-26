@@ -271,7 +271,7 @@ class Serv(EntryPoint):
 
         add_{{ serv_name | upper }}Servicer_to_server(handdler, grpc_serv)
         self._config_ref_and_health_service(grpc_serv, max_threads)
-        # channelz
+        # 启用grpc-admin协助debug
         if self.config.get("use_admin"):
             log.info("use grpc_admin")
             grpc_admin.add_admin_servicers(grpc_serv)
@@ -358,66 +358,41 @@ class Serv(EntryPoint):
             e: 执行报错
         """
         hostname, port = addr.split(":")
+        port = int(port_str)
         xds_creds = self.config.get("xds_creds", False)
-        maintenance_port = self.config.get("xds_maintenance_port") | int(port)
+        maintenance_port = self.config.get("xds_maintenance_port") or int(port)
         if port == maintenance_port:
-            # If maintenance port and port are the same, start a single server.
-            if interceptors:
-                grpc_serv = grpc.server(
-                    futures.ThreadPoolExecutor(max_workers=max_threads),
-                    compression=compression,
-                    options=opts,
-                    maximum_concurrent_rpcs=maximum_concurrent_rpcs,
-                    interceptors=interceptors
-                )
-            else:
-                grpc_serv = grpc.server(
-                    futures.ThreadPoolExecutor(max_workers=max_threads),
-                    compression=compression,
-                    options=opts,
-                    maximum_concurrent_rpcs=maximum_concurrent_rpcs
-                )
-            self._configure_grpc_server(grpc_serv, xds_creds, handdler, addr)
-            self._configure_maintenance_server(grpc_serv, hostname, maintenance_port, max_threads)
-            grpc_serv.start()
-            log.warn("grpc start", addr=addr, maintenance_port=maintenance_port)
-            try:
-                grpc_serv.wait_for_termination()
-            except KeyboardInterrupt:
-                log.info("grpc stoped")
-            except Exception as e:
-                raise e
+            maintenance_port = port + 1
+        # Otherwise, start two different servers.
+        if interceptors:
+            grpc_server = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+                interceptors=interceptors,
+                xds=xds_creds)
         else:
-            # Otherwise, start two different servers.
-            if interceptors:
-                grpc_server = grpc.server(
-                    futures.ThreadPoolExecutor(max_workers=max_threads),
-                    compression=compression,
-                    options=opts,
-                    maximum_concurrent_rpcs=maximum_concurrent_rpcs,
-                    interceptors=interceptors,
-                    xds=xds_creds)
-            else:
-                grpc_serv = grpc.server(
-                    futures.ThreadPoolExecutor(max_workers=max_threads),
-                    compression=compression,
-                    options=opts,
-                    maximum_concurrent_rpcs=maximum_concurrent_rpcs,
-                    xds=xds_creds
-                )
-            self._configure_grpc_server(grpc_server, xds_creds, handdler, addr)
-            grpc_server.start()
-            maintenance_server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_threads))
-            self._configure_maintenance_server(maintenance_server, hostname, maintenance_port, max_threads)
-            maintenance_server.start()
-            log.info("grpc start", addr=addr, maintenance_port=maintenance_port)
-            try:
-                grpc_server.wait_for_termination()
-                maintenance_server.wait_for_termination()
-            except KeyboardInterrupt:
-                log.warn("grpc stoped")
-            except Exception as e:
-                raise e
+            grpc_server = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+                xds=xds_creds
+            )
+        self._configure_grpc_server(grpc_server, xds_creds, handdler, addr)
+        grpc_server.start()
+        maintenance_server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_threads))
+        self._configure_maintenance_server(maintenance_server, hostname, maintenance_port, max_threads)
+        maintenance_server.start()
+        log.info("grpc start", addr=addr, maintenance_port=maintenance_port)
+        try:
+            grpc_server.wait_for_termination()
+            maintenance_server.wait_for_termination()
+        except KeyboardInterrupt:
+            log.warn("grpc stoped")
+        except Exception as e:
+            raise e
 
     def do_main(self) -> None:
         """服务程序入口."""
