@@ -237,7 +237,6 @@ class Serv(EntryPoint):
             health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
         reflection.enable_server_reflection(services, server)
 
-
     def common_serv(self, opts: List[Tuple[str, int]], handdler: Handdler, addr: str, compression: grpc.Compression, max_threads: int, maximum_concurrent_rpcs: int, *interceptors: grpc.ServerInterceptor) -> None:
         """普通服务程序入口.
 
