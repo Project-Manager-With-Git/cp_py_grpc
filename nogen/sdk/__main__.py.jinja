@@ -33,20 +33,20 @@ class Test(EntryPoint):
         log.initialize_for_app(app_name="sdk", log_level="DEBUG")
         interceptors = [TimerInterceptor()]
         # req-res
-        with sdk.initialize_from_url(url) as conn:
+        with sdk.initialize_from_url(**self.config, interceptors=interceptors) as conn:
             res, call = conn.Square.with_call(rpc_protos.Message(Message=2.0), metadata=(("a", "1"), ("b", "2")))
             header = call.initial_metadata()
             trailing = call.trailing_metadata()
             log.info("Square get result", res=MessageToDict(res), header=header, trailing=trailing)
         # req-stream
-        with Client(url=url) as conn:
+        with Client(**self.config, interceptors=interceptors) as conn:
             res_stream = conn.RangeSquare(rpc_protos.Message(Message=4.0))
             for res in res_stream:
                 log.info("RangeSquare get msg", res=MessageToDict(res))
         # stream-res
-        sdk.initialize_from_url(url)
+        sdk.initialize_from_url(**self.config, interceptors=interceptors)
         with sdk:
-            res = sdk.SumSquare((Message(Message=float(i)) for i in range(4)))
+            res = sdk.SumSquare((rpc_protos.Message(Message=float(i)) for i in range(4)))
             log.info("SumSquare get result", res=MessageToDict(res))
         # stream-stream
         with sdk:
