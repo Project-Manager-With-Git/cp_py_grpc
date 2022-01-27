@@ -5,37 +5,44 @@ from pyloggerhelper import log
 from schema_entry import EntryPoint
 from .sdk import sdk, Client
 from .pb import rpc_protos
+from .interceptor.timer import TimerInterceptor
+
 
 class Test(EntryPoint):
     """grpc的服务端启动入口."""
     schema = {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "required": ["address"],
+        "required": ["url"],
         "properties": {
-            "address": {
+            "url": {
                 "type": "string",
                 "title": "a",
                 "description": "服务启动地址",
                 "default": "localhost:5000"
+            },
+            "xds_creds": {
+                "type": "boolean",
+                "description": "是否使用xDSAPIs来接收TLS设置",
+                "default": False
             }
         }
     }
 
     def do_main(self) -> None:
-        url = self.config["address"]
         log.initialize_for_app(app_name="sdk", log_level="DEBUG")
+        interceptors = [TimerInterceptor()]
         # req-res
         with sdk.initialize_from_url(url) as conn:
             res, call = conn.Square.with_call(rpc_protos.Message(Message=2.0), metadata=(("a", "1"), ("b", "2")))
             header = call.initial_metadata()
             trailing = call.trailing_metadata()
-            log.info("Square get result", res=rpc_protos.MessageToDict(res), header=header, trailing=trailing)
+            log.info("Square get result", res=MessageToDict(res), header=header, trailing=trailing)
         # req-stream
         with Client(url=url) as conn:
             res_stream = conn.RangeSquare(rpc_protos.Message(Message=4.0))
             for res in res_stream:
-                log.info("RangeSquare get msg", res=rpc_protos.MessageToDict(res))
+                log.info("RangeSquare get msg", res=MessageToDict(res))
         # stream-res
         sdk.initialize_from_url(url)
         with sdk:
@@ -43,7 +50,7 @@ class Test(EntryPoint):
             log.info("SumSquare get result", res=MessageToDict(res))
         # stream-stream
         with sdk:
-            res_stream = sdk.StreamrangeSquare((Message(Message=float(i)) for i in range(4)), metadata=(("a", "1"), ("b", "2")))
+            res_stream = sdk.StreamrangeSquare((rpc_protos.Message(Message=float(i)) for i in range(4)), metadata=(("a", "1"), ("b", "2")))
             header = res_stream.initial_metadata()
             for res in res_stream:
                 log.info("StreamrangeSquare get msg", res=MessageToDict(res))

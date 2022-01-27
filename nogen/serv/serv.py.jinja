@@ -1,18 +1,18 @@
-import os
 from pathlib import Path
 from concurrent import futures
-from typing import Any, Dict, Tuple, Union, List
+from typing import Any, Dict, Tuple, List
 import grpc
 from grpc_health.v1 import health
 from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
-from grpc_channelz.v1 import channelz
+import grpc_admin
 from grpc_reflection.v1alpha import reflection
 from schema_entry import EntryPoint
 from pyloggerhelper import log
 from .handdler import Handdler
 from .interceptor.timer import TimerInterceptor
 from .pb import rpc_protos, rpc_services
+
 _COMPRESSION_OPTIONS = {
     "none": grpc.Compression.NoCompression,
     "deflate": grpc.Compression.Deflate,
@@ -126,6 +126,21 @@ class Serv(EntryPoint):
                 "description": "使用哪种方式压缩发送的消息",
                 "enum": ["deflate", "gzip"],
             },
+            "xds": {
+                "type": "boolean",
+                "title": "x",
+                "description": "是否使用xDSAPIs,使用xds模式则tls设置将失效",
+                "default": False
+            },
+            "xds_creds": {
+                "type": "boolean",
+                "description": "是否使用xDSAPIs来接收TLS设置",
+                "default": False
+            },
+            "xds_maintenance_port": {
+                "type": "integer",
+                "description": "maintenance服务的端口,如果不设置则使用当前服务端口",
+            },
             "rpc_options": {
                 "type": "array",
                 "title": "o",
@@ -137,14 +152,14 @@ class Serv(EntryPoint):
         }
     }
 
-    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, Union[int]]]:
+    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, int]]:
         """构造grpc服务端的选项配置.
 
         Args:
             config (Dict[str, Any]): 服务的配置
 
         Returns:
-            List[Tuple[str, Union[int]]]: 配置项
+            List[Tuple[str, int]]: 配置项
         """
         _opt = {
             'grpc.so_reuseport': 0
@@ -198,28 +213,17 @@ class Serv(EntryPoint):
             })
         return [(k, v) for k, v in _opt.items()]
 
-    def do_main(self) -> None:
-        """服务程序入口."""
-        config = self.config
-        log.initialize_for_app(app_name=config.get("app_name"), log_level=config.get("log_level"))
-        opts = self.make_opts(config)
-        grpc_serv = grpc.server(
-            futures.ThreadPoolExecutor(max_workers=config.get("max_threads", 1000)),
-            compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
-            options=opts,
-            maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50),
-            interceptors=(TimerInterceptor(),)  # 注册拦截器
-        )
-        handdler = Handdler(config)
-        rpc_services.add_{{ serv_name | upper }}Servicer_to_server(handdler, grpc_serv)
-        # 健康检查
+    def _config_ref_and_health_service(self, server: grpc.Server, max_threads: int) -> None:
+        """配置指定服务的反射服务和健康检查服务.
+
+        Args:
+            server (grpc.Server): 要反射和健康检查的服务.
+            max_threads (int): 健康检查服务的最大线程池大小.
+        """
         health_servicer = health.HealthServicer(
             experimental_non_blocking=True,
-            experimental_thread_pool=futures.ThreadPoolExecutor(max_workers=1)
-        )
-        health_pb2_grpc.add_HealthServicer_to_server(health_servicer, grpc_serv)
-
-        # 反射
+            experimental_thread_pool=futures.ThreadPoolExecutor(
+                max_workers=max_threads))
         services = tuple(
             service.full_name
             for service in rpc_protos.DESCRIPTOR.services_by_name.values()
@@ -227,15 +231,50 @@ class Serv(EntryPoint):
             reflection.SERVICE_NAME,
             health.SERVICE_NAME
         )
-        reflection.enable_server_reflection(services, grpc_serv)
+        health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+        for service in services:
+            health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
+        reflection.enable_server_reflection(services, server)
 
-        # channelz
+    def common_serv(self, opts: List[Tuple[str, int]], handdler: Handdler, addr: str, compression: grpc.Compression, max_threads: int, maximum_concurrent_rpcs: int, *interceptors: grpc.ServerInterceptor) -> None:
+        """普通服务程序入口.
+
+        Args:
+            opts (List[Tuple[str, int]]): grpc服务配置
+            handdler (Handdler): grpc服务实现
+            addr (str): grpc服务的启动地址
+            compression (grpc.Compression): 传输数据压缩配置
+            max_threads (int): grpc服务的线程池最大线程数
+            maximum_concurrent_rpcs (int): 最大并发限制
+            *interceptors  (grpc.ServerInterceptor): 服务端拦截器
+
+        Raises:
+            e: 执行报错
+        """
+        if interceptors:
+            grpc_serv = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+                interceptors=interceptors
+            )
+        else:
+            grpc_serv = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs
+            )
+        rpc_services.add_{{ serv_name | upper }}Servicer_to_server(handdler, grpc_serv)
+        self._config_ref_and_health_service(grpc_serv, max_threads)
+        # 启用grpc-admin协助debug
         if self.config.get("use_admin"):
-            channelz.add_channelz_servicer(grpc_serv)
-        # 绑定地址
-        pid = os.getpid()
-        addr = config["address"]
+            log.info("use grpc_admin")
+            grpc_admin.add_admin_servicers(grpc_serv)
+        # 设置tls
         if self.config.get("server_cert_path") and self.config.get("server_key_path"):
+            log.info("use tls")
             server_cert_p = Path(self.config["server_cert_path"])
             server_key_p = Path(self.config["server_key_path"])
             try:
@@ -250,18 +289,124 @@ class Serv(EntryPoint):
                 grpc_serv.add_secure_port(addr, server_credentials)
             except Exception as e:
                 log.warn(f"tls load error", err=type(e), err_msg=str(e), exc_info=True, stack_info=True)
+                # 回退到不设置tls
                 grpc_serv.add_insecure_port(addr)
+        # 不设置tls
         else:
             grpc_serv.add_insecure_port(addr)
-        log.warn("grpc start", pid=pid, addr=addr)
+        log.warn("grpc start", addr=addr)
         grpc_serv.start()
         try:
-            # 设置服务为健康
-            overall_server_health = ""
-            for service in services + (overall_server_health,):
-                health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
             grpc_serv.wait_for_termination()
         except KeyboardInterrupt:
-            log.warn("grpc worker stoped", pid=pid)
+            log.warn("grpc stoped")
         except Exception as e:
             raise e
+
+    def _configure_maintenance_server(self, server: grpc.Server, hostname: str, maintenance_port: int, max_threads: int) -> None:
+        """设置维护服务器.
+
+        Args:
+            server (grpc.Server): 将被设置为维护服务器的服务
+            hostname (str): 部署域名或ip
+            maintenance_port (int): 部署端口
+            max_threads (int): 线程池最大线程数
+        """
+        listen_address = f"{hostname}:{maintenance_port}"
+        server.add_insecure_port(listen_address)
+        self._config_ref_and_health_service(server, max_threads)
+
+    def _configure_grpc_server(self, server: grpc.Server, secure_mode: bool, handdler: Handdler, addr: str) -> None:
+        """设置grpc业务服务.
+
+        Args:
+            server (grpc.Server): 将被设置为业务服务器的服务
+            secure_mode (bool): 是否使用安全模式
+            handdler (Handdler): 业务逻辑实现
+            addr (str): 部署位置
+        """
+        # Add the application servicer to the server.
+        rpc_services.add_{{ serv_name | upper }}Servicer_to_server(handdler, server)
+        if not secure_mode:
+            log.info("Running xDS Server")
+            server.add_insecure_port(addr)
+        else:
+            # Use xDS credentials.
+            log.info("Running with xDS Server credentials")
+            # Fall back to insecure credentials.
+            server_fallback_creds = grpc.insecure_server_credentials()
+            server_creds = grpc.xds_server_credentials(server_fallback_creds)
+            server.add_secure_port(addr, server_creds)
+
+    def xds_serv(self, opts: List[Tuple[str, int]], handdler: Handdler, addr: str, compression: grpc.Compression, max_threads: int, maximum_concurrent_rpcs: int, *interceptors: grpc.ServerInterceptor) -> None:
+        """xds服务.
+
+        Args:
+            opts (List[Tuple[str, int]]): grpc服务配置
+            handdler (Handdler): grpc服务实现
+            addr (str): grpc服务的启动地址
+            compression (grpc.Compression): 传输数据压缩配置
+            max_threads (int): grpc服务的线程池最大线程数
+            maximum_concurrent_rpcs (int): 最大并发限制
+            *interceptors  (grpc.ServerInterceptor): 服务端拦截器
+
+        Raises:
+            e: 执行报错
+        """
+        hostname, port_str = addr.split(":")
+        port = int(port_str)
+        xds_creds = self.config.get("xds_creds", False)
+        maintenance_port = self.config.get("xds_maintenance_port") or int(port)
+        if port == maintenance_port:
+            maintenance_port = port + 1
+        # Otherwise, start two different servers.
+        if interceptors:
+            grpc_server = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+                interceptors=interceptors,
+                xds=xds_creds)
+        else:
+            grpc_server = grpc.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+                xds=xds_creds
+            )
+        self._configure_grpc_server(grpc_server, xds_creds, handdler, addr)
+        grpc_server.start()
+        maintenance_server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_threads))
+        self._configure_maintenance_server(maintenance_server, hostname, maintenance_port, max_threads)
+        maintenance_server.start()
+        log.info("grpc start", addr=addr, maintenance_port=maintenance_port)
+        try:
+            grpc_server.wait_for_termination()
+            maintenance_server.wait_for_termination()
+        except KeyboardInterrupt:
+            log.warn("grpc stoped")
+        except Exception as e:
+            raise e
+
+    def do_main(self) -> None:
+        """服务程序入口."""
+        config = self.config
+        log.initialize_for_app(app_name=config.get("app_name"), log_level=config.get("log_level"))
+        log.info("initialize app config ok", config=config)
+        opts = self.make_opts(config)
+        log.debug("initialize grpc options ok", opts=opts)
+        handdler = Handdler(config)
+        log.debug("initialize handdler ok")
+        max_threads = self.config.get("max_threads", 1000)
+        log.debug("initialize threads pool", max_threads=max_threads)
+        maximum_concurrent_rpcs = self.config.get("maximum_concurrent_rpcs", 50)
+        log.debug("initialize maximum concurrent rpcs", maximum_concurrent_rpcs=maximum_concurrent_rpcs)
+        addr = self.config["address"]
+        compression = _COMPRESSION_OPTIONS.get(self.config.get("compression"))
+        log.debug("initialize compression config", compression=compression)
+        if config.get("xds"):
+            self.xds_serv(opts, handdler, addr, compression, max_threads, maximum_concurrent_rpcs, TimerInterceptor())
+        else:
+            self.common_serv(opts, handdler, addr, compression, max_threads, maximum_concurrent_rpcs, TimerInterceptor())
