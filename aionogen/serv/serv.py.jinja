@@ -220,7 +220,7 @@ class Serv(EntryPoint):
             })
         return [(k, v) for k, v in _opt.items()]
 
-        async def _config_ref_and_health_service(self, server: grpc.aio.Server) -> None:
+    async def _config_ref_and_health_service(self, server: grpc.aio.Server) -> None:
         """配置指定服务的反射服务和健康检查服务.
 
         Args:
