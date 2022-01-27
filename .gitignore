@@ -13,6 +13,9 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-env
-*.pyc
+
+.mypy_cache
+
 __pycache__
+
+env

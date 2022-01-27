@@ -1,0 +1,6 @@
+import grpc
+import sys
+from pathlib import Path
+pbschema_path = Path(__file__).parent.parent.parent.joinpath("pbschema").absolute()
+sys.path.insert(0, pbschema_path.as_posix())
+rpc_protos, rpc_services = grpc.protos_and_services("{{ serv_name }}.proto")

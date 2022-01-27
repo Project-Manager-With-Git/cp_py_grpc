@@ -1,0 +1,82 @@
+import sys
+from typing import Sequence, Any
+import asyncio
+from google.protobuf.json_format import MessageToDict
+from pyloggerhelper import log
+from schema_entry import EntryPoint
+from .sdk import sdk, Client
+from .pb import rpc_protos
+
+from .interceptor.timer import (
+    UnaryUnaryTimerInterceptor,
+    UnaryStreamTimerInterceptor,
+    StreamUnaryTimerInterceptor,
+    StreamStreamTimerInterceptor
+)
+
+
+async def _cli_exp(**kwargs: Any) -> None:
+    log.initialize_for_app(app_name="sdk", log_level="DEBUG")
+    # req-res
+    async with sdk.initialize_from_url(**kwargs) as conn:
+        ctx = conn.Square(rpc_protos.Message(Message=2.0), metadata=(("a", "1"), ("b", "2")))
+        header = await ctx.initial_metadata()
+        res = await ctx
+        trailing = await ctx.trailing_metadata()
+        log.info("Square get result", res=MessageToDict(res), header=header, trailing=trailing)
+    # req-stream
+    async with Client(**kwargs) as conn:
+        res_stream = conn.RangeSquare(rpc_protos.Message(Message=4.0))
+        async for res in res_stream:
+            log.info("RangeSquare get msg", res=MessageToDict(res))
+    # stream-res
+    sdk.initialize_from_url(**kwargs)
+    async with sdk:
+        res = await sdk.SumSquare((rpc_protos.Message(Message=float(i)) for i in range(4)))
+        log.info("SumSquare get result", res=MessageToDict(res))
+    # stream-stream
+    async with sdk:
+        res_stream = sdk.StreamrangeSquare((rpc_protos.Message(Message=float(i)) for i in range(4)), metadata=(("a", "1"), ("b", "2")))
+        header = await res_stream.initial_metadata()
+        async for res in res_stream:
+            log.info("StreamrangeSquare get msg", res=MessageToDict(res))
+        trailing = await res_stream.trailing_metadata()
+        log.info("StreamrangeSquare done", header=header, trailing=trailing)
+
+
+class Test(EntryPoint):
+    """grpc的服务端启动入口."""
+    schema = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+            "url": {
+                "type": "string",
+                "title": "a",
+                "description": "服务启动地址",
+                "default": "localhost:5000"
+            },
+            "xds_creds": {
+                "type": "boolean",
+                "description": "是否使用xDSAPIs来接收TLS设置",
+                "default": False
+            }
+        }
+    }
+
+    def do_main(self) -> None:
+        asyncio.run(_cli_exp(**self.config,
+                             interceptors=[UnaryUnaryTimerInterceptor(),
+                                           UnaryStreamTimerInterceptor(),
+                                           StreamUnaryTimerInterceptor(),
+                                           StreamStreamTimerInterceptor()]))
+
+
+def main(argv: Sequence[str]) -> None:
+    test_node = Test(name="{{ serv_name }}_serv_test")
+    test_node(argv)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
