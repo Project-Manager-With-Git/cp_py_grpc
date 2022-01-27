@@ -1,14 +1,13 @@
-import os
 import asyncio
 from pathlib import Path
 from concurrent import futures
-from typing import Any, Dict, Tuple, Union, List
+from typing import Any, Dict, Tuple, List
 import grpc
 from grpc_health.v1 import health
 from grpc_health.v1 import _async as health_async
 from grpc_health.v1 import health_pb2
 from grpc_health.v1 import health_pb2_grpc
-from grpc_channelz.v1 import channelz
+import grpc_admin
 from grpc_reflection.v1alpha import reflection
 from schema_entry import EntryPoint
 from pyloggerhelper import log
@@ -21,6 +20,7 @@ _COMPRESSION_OPTIONS = {
     "deflate": grpc.Compression.Deflate,
     "gzip": grpc.Compression.Gzip,
 }
+_cleanup_coroutines = []
 
 
 class Serv(EntryPoint):
@@ -129,6 +129,21 @@ class Serv(EntryPoint):
                 "description": "使用哪种方式压缩发送的消息",
                 "enum": ["deflate", "gzip"],
             },
+                        "xds": {
+                "type": "boolean",
+                "title": "x",
+                "description": "是否使用xDSAPIs,使用xds模式则tls设置将失效",
+                "default": False
+            },
+            "xds_creds": {
+                "type": "boolean",
+                "description": "是否使用xDSAPIs来接收TLS设置",
+                "default": False
+            },
+            "xds_maintenance_port": {
+                "type": "integer",
+                "description": "maintenance服务的端口,如果不设置则使用当前服务端口",
+            },
             "rpc_options": {
                 "type": "array",
                 "title": "o",
@@ -137,17 +152,21 @@ class Serv(EntryPoint):
                     "type": "string"
                 }
             },
+            "uvloop":{
+                "type": "boolean",
+                "description": "是否使用uvloop作为事件循环"
+            }
         }
     }
 
-    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, Union[int]]]:
+    def make_opts(self, config: Dict[str, Any]) -> List[Tuple[str, int]]:
         """构造grpc服务端的选项配置.
 
         Args:
             as_worker (bool): 服务是否是多线程中作为worker的
 
         Returns:
-            List[Tuple[str, Union[int]]]: 配置项
+            List[Tuple[str, int]]: 配置项
         """
         _opt = {
             'grpc.so_reuseport': 0
@@ -201,23 +220,13 @@ class Serv(EntryPoint):
             })
         return [(k, v) for k, v in _opt.items()]
 
-    async def run_singal_serv(self, config: Dict[str, Any]) -> None:
-        opts = self.make_opts(config)
-        grpc_serv = grpc.aio.server(
-            futures.ThreadPoolExecutor(max_workers=config.get("max_threads", 1000)),
-            compression=_COMPRESSION_OPTIONS.get(self.config.get("compression"), grpc.Compression.NoCompression),
-            options=opts,
-            maximum_concurrent_rpcs=config.get("maximum_concurrent_rpcs", 50),
-            interceptors=(TimerInterceptor(),)
-        )
-        handdler = Handdler(config)
-        rpc_services.add_{{ serv_name | upper }}Servicer_to_server(handdler, grpc_serv)
+        async def _config_ref_and_health_service(self, server: grpc.aio.Server) -> None:
+        """配置指定服务的反射服务和健康检查服务.
 
-        # 健康检查
+        Args:
+            server (grpc.aio.Server): 要反射和健康检查的服务.
+        """
         health_servicer = health_async.HealthServicer()
-        health_pb2_grpc.add_HealthServicer_to_server(health_servicer, grpc_serv)
-
-        # 反射
         services = tuple(
             service.full_name
             for service in rpc_protos.DESCRIPTOR.services_by_name.values()
@@ -225,14 +234,50 @@ class Serv(EntryPoint):
             reflection.SERVICE_NAME,
             health.SERVICE_NAME
         )
-        reflection.enable_server_reflection(services, grpc_serv)
+        health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+        for service in services:
+            await health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
+        reflection.enable_server_reflection(services, server)
 
-        # channelz
+    async def common_serv(self, opts: List[Tuple[str, int]], handdler: Handdler, addr: str, compression: grpc.Compression, max_threads: int, maximum_concurrent_rpcs: int, *interceptors: grpc.aio.ServerInterceptor) -> None:
+        """普通服务程序入口.
+
+        Args:
+            opts (List[Tuple[str, int]]): grpc服务配置
+            handdler (Handdler): grpc服务实现
+            addr (str): grpc服务的启动地址
+            compression (grpc.Compression): 传输数据压缩配置
+            max_threads (int): grpc服务的线程池最大线程数
+            maximum_concurrent_rpcs (int): 最大并发限制
+            *interceptors  (grpc.ServerInterceptor): 服务端拦截器
+
+        Raises:
+            e: 执行报错
+        """
+        if interceptors:
+            grpc_serv = grpc.aio.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+                interceptors=interceptors  # 注册拦截器
+            )
+        else:
+            grpc_serv = grpc.aio.server(
+                futures.ThreadPoolExecutor(max_workers=max_threads),
+                compression=compression,
+                options=opts,
+                maximum_concurrent_rpcs=maximum_concurrent_rpcs
+            )
+
+        rpc_services.add_{{ serv_name | upper }}Servicer_to_server(handdler, grpc_serv)
+        await self._config_ref_and_health_service(grpc_serv)
+
+        # 启用grpc-admin协助debug
         if self.config.get("use_admin"):
-            channelz.add_channelz_servicer(grpc_serv)
+            log.info("use grpc_admin")
+            grpc_admin.add_admin_servicers(grpc_serv)
         # 绑定端口
-        pid = os.getpid()
-        addr = config["address"]
         if self.config.get("server_cert_path") and self.config.get("server_key_path"):
             server_cert_p = Path(self.config["server_cert_path"])
             server_key_p = Path(self.config["server_key_path"])
@@ -252,16 +297,120 @@ class Serv(EntryPoint):
         else:
             grpc_serv.add_insecure_port(addr)
 
-        log.warn("grpc start", pid=pid, addr=addr)
+        log.warn("grpc start", addr=addr)
         await grpc_serv.start()
-        # 设置服务为健康
-        overall_server_health = ""
-        for service in services + (overall_server_health,):
-            await health_servicer.set(service, health_pb2.HealthCheckResponse.SERVING)
-        try:
-            await grpc_serv.wait_for_termination()
-        except KeyboardInterrupt:
-            await grpc_serv.stop(0)
+
+        async def server_graceful_shutdown() -> None:
+            log.info("Starting graceful shutdown...")
+            # Shuts down the server with 0 seconds of grace period. During the
+            # grace period, the server won't accept new connections and allow
+            # existing RPCs to continue within the grace period.
+            await grpc_serv.stop(5)
+
+        _cleanup_coroutines.append(server_graceful_shutdown())
+        await grpc_serv.wait_for_termination()
+
+    async def _configure_maintenance_server(self, server: grpc.aio.Server, hostname: str, maintenance_port: int) -> None:
+        """设置维护服务器.
+
+        Args:
+            server (grpc.aio.Server): 将被设置为维护服务器的服务
+            hostname (str): 部署域名或ip
+            maintenance_port (int): 部署端口
+        """
+        listen_address = f"{hostname}:{maintenance_port}"
+        server.add_insecure_port(listen_address)
+        await self._config_ref_and_health_service(server)
+
+    def _configure_grpc_server(self, server: grpc.aio.Server, secure_mode: bool, handdler: Handdler, addr: str) -> None:
+        """设置grpc业务服务.
+
+        Args:
+            server (grpc.Server): 将被设置为业务服务器的服务
+            secure_mode (bool): 是否使用安全模式
+            handdler (Handdler): 业务逻辑实现
+            addr (str): 部署位置
+        """
+        # Add the application servicer to the server.
+        rpc_services.add_{{ serv_name | upper }}Servicer_to_server(handdler, server)
+        if not secure_mode:
+            log.info("Running xDS Server")
+            server.add_insecure_port(addr)
+        else:
+            # Use xDS credentials.
+            log.info("Running with xDS Server credentials")
+            # Fall back to insecure credentials.
+            server_fallback_creds = grpc.insecure_server_credentials()
+            server_creds = grpc.xds_server_credentials(server_fallback_creds)
+            server.add_secure_port(addr, server_creds)
+
+    # async def xds_serv(self, opts: List[Tuple[str, int]], handdler: Handdler, addr: str, compression: grpc.Compression, max_threads: int, maximum_concurrent_rpcs: int, *interceptors: grpc.ServerInterceptor) -> None:
+    #     """xds服务.
+
+    #     Args:
+    #         opts (List[Tuple[str, int]]): grpc服务配置
+    #         handdler (Handdler): grpc服务实现
+    #         addr (str): grpc服务的启动地址
+    #         compression (grpc.Compression): 传输数据压缩配置
+    #         max_threads (int): grpc服务的线程池最大线程数
+    #         maximum_concurrent_rpcs (int): 最大并发限制
+    #         *interceptors  (grpc.ServerInterceptor): 服务端拦截器
+
+    #     Raises:
+    #         e: 执行报错
+    #     """
+    #     grpc_serv: grpc.aio.Server
+    #     hostname, port_str = addr.split(":")
+    #     port = int(port_str)
+    #     xds_creds = self.config.get("xds_creds", False)
+    #     maintenance_port = self.config.get("xds_maintenance_port") or (port+1)
+    #     if port == maintenance_port:
+    #         maintenance_port = port + 1
+
+    #     # Otherwise, start two different servers.
+    #     if interceptors:
+    #         grpc_server = grpc.aio.server(
+    #             futures.ThreadPoolExecutor(max_workers=max_threads),
+    #             compression=compression,
+    #             options=opts,
+    #             maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+    #             interceptors=interceptors,
+    #             xds=xds_creds)
+    #     else:
+    #         grpc_serv = grpc.aio.server(
+    #             futures.ThreadPoolExecutor(max_workers=max_threads),
+    #             compression=compression,
+    #             options=opts,
+    #             maximum_concurrent_rpcs=maximum_concurrent_rpcs,
+    #             xds=xds_creds
+    #         )
+    #     self._configure_grpc_server(grpc_server, xds_creds, handdler, addr)
+    #     await grpc_server.start()
+    #     maintenance_server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_threads))
+    #     await self._configure_maintenance_server(maintenance_server, hostname, maintenance_port)
+    #     await maintenance_server.start()
+    #     log.info("grpc start", addr=addr, maintenance_port=maintenance_port)
+
+    #     async def grpc_server_graceful_shutdown() -> None:
+    #         log.info("grpc_server starting graceful shutdown...")
+    #         # Shuts down the server with 0 seconds of grace period. During the
+    #         # grace period, the server won't accept new connections and allow
+    #         # existing RPCs to continue within the grace period.
+    #         await grpc_serv.stop(5)
+
+    #     _cleanup_coroutines.append(grpc_server_graceful_shutdown())
+
+    #     async def maintenance_server_graceful_shutdown() -> None:
+    #         log.info("maintenance_server starting graceful shutdown...")
+    #         # Shuts down the server with 0 seconds of grace period. During the
+    #         # grace period, the server won't accept new connections and allow
+    #         # existing RPCs to continue within the grace period.
+    #         await maintenance_server.stop(5)
+
+    #     _cleanup_coroutines.append(maintenance_server_graceful_shutdown())
+
+    #     await grpc_serv.wait_for_termination()
+    #     await maintenance_server.wait_for_termination()
 
     def do_main(self) -> None:
         """服务程序入口."""
@@ -276,9 +425,31 @@ class Serv(EntryPoint):
                 log.warn("import uvloop error")
             else:
                 log.warn("grpc using uvloop")
+        loop = asyncio.get_event_loop()
+        log.info("initialize app config ok", config=config)
+        opts = self.make_opts(config)
+        log.debug("initialize grpc options ok", opts=opts)
+        handdler = Handdler(config)
+        log.debug("initialize handdler ok")
+        max_threads = self.config.get("max_threads", 1000)
+        log.debug("initialize threads pool", max_threads=max_threads)
+        maximum_concurrent_rpcs = self.config.get("maximum_concurrent_rpcs", 50)
+        log.debug("initialize maximum concurrent rpcs", maximum_concurrent_rpcs=maximum_concurrent_rpcs)
+        addr = self.config["address"]
+        compression = _COMPRESSION_OPTIONS.get(self.config.get("compression"))
+        log.debug("initialize compression config", compression=compression)
         try:
-            asyncio.run(self.run_singal_serv(config=config))
+            if config.get("xds"):
+                # loop.run_until_complete(self.xds_serv(opts, handdler, addr, compression, max_threads, maximum_concurrent_rpcs, TimerInterceptor()))
+                log.warn("aio grpc not support xds yet, waiting for the next version. running server as common")
+
+            loop.run_until_complete(self.common_serv(opts, handdler, addr, compression, max_threads, maximum_concurrent_rpcs, TimerInterceptor()))
+
         except KeyboardInterrupt:
-            log.warn("grpc stoped")
+            log.info("grpc stoping")
         except Exception as e:
-            raise e
+            log.error("grpc server get error", err_type=type(e), err_msg=str(e), exc_info=True, stack_info=True)
+        finally:
+            loop.run_until_complete(*_cleanup_coroutines)
+            loop.close()
+            log.info("grpc stoped")

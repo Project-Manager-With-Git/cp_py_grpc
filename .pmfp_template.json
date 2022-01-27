@@ -55,12 +55,12 @@
             "default_path": "{{ project_name }}/sdk"
         },
         "aio_serv_interceptor": {
-            "source": "aio_serv_interceptor",
+            "source": "aio_interceptor/serv_interceptor",
             "description": "grpc异步服务端模块拦截器模板",
             "default_path": "{{ project_name }}/serv/interceptor"
         },
         "aio_sdk_interceptor": {
-            "source": "aio_client_interceptor",
+            "source": "aio_interceptor/sdk_interceptor",
             "description": "grpc异步sdk模块拦截器模板",
             "default_path": "{{ project_name }}/sdk/interceptor"
         },
@@ -85,12 +85,12 @@
             "default_path": "{{ project_name }}/sdk"
         },
         "sync_serv_interceptor": {
-            "source": "sync_serv_interceptor",
+            "source": "sync_interceptor/serv_interceptor",
             "description": "grpc同步服务端模块拦截器模板",
             "default_path": "{{ project_name }}/serv/interceptor"
         },
         "sync_sdk_interceptor": {
-            "source": "sync_sdk_interceptor",
+            "source": "sync_interceptor/sdk_interceptor",
             "description": "grpc同步sdk模块拦截器模板",
             "default_path": "{{ project_name }}/sdk/interceptor"
         },
